@@ -1,6 +1,6 @@
 ---
-name:
-description:
+name: common-agent
+description: "A general-purpose GitHub Copilot agent that can analyze code, suggest improvements, and generate tests."
 ---
 
 # My Agent
