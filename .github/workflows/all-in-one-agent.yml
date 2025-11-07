@@ -1,4 +1,4 @@
-name: PR Dead Code Cleanup
+name: PR Dead Code Cleanup (Maven Multi-Module)
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
-          distribution: 'temurin'   # Fixed: required input
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Cache Maven packages
@@ -26,18 +26,29 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      - name: Run Maven Verify
+      - name: List Maven modules
+        run: mvn -B -q help:all-profiles | tee modules.txt
+
+      - name: Verify Maven Multi-Module Build
         run: mvn clean verify
 
-      - name: Detect Dead Code
+      - name: Detect Dead Code in All Modules
         run: |
-          mvn dependency:analyze | tee dependency-report.txt
-          mvn jdepend:generate | tee jdepend-report.txt
-          echo "Reports generated. Workflow can optionally remove unused imports automatically."
+          echo "Running dependency analysis for all modules..."
+          for pom in $(find . -name "pom.xml"); do
+            echo "Analyzing $pom"
+            mvn -f $pom dependency:analyze jdepend:generate
+          done
 
-      - name: Auto-remove unused imports and format code
+      - name: Auto-remove unused imports with Spotless
         run: |
-          mvn spotless:apply
+          for pom in $(find . -name "pom.xml"); do
+            echo "Formatting $pom"
+            mvn -f $pom spotless:apply
+          done
+
+      - name: Commit cleanup changes
+        run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add .
@@ -53,5 +64,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: "✅ Dead code cleanup applied automatically by workflow."
+              body: "✅ Dead code cleanup applied automatically by workflow to all Maven modules."
             })
