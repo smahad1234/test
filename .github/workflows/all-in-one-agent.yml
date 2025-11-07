@@ -25,17 +25,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build project
-        run: mvn clean compile --no-transfer-progress
-
-      - name: Find all module src/main/java folders
-        id: find-src
+      - name: Build all modules
         run: |
-          echo "SRC_DIRS<<EOF" >> $GITHUB_ENV
-          find . -type d -path "*/src/main/java" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          for module in */; do
+            if [ -f "$module/pom.xml" ]; then
+              echo "Building $module"
+              mvn -f "$module/pom.xml" clean compile --no-transfer-progress
+            fi
+          done
 
-      - name: Run Dead Code Cleaner
+      - name: Run Dead Code Cleaner on all src/main/java
         run: |
           for dir in $(find . -type d -path "*/src/main/java"); do
             echo "Cleaning dead code in $dir"
