@@ -1,51 +1,43 @@
-name: Dead Code Cleaner - Lightweight
+name: Dead Code Cleaner
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
-    types: [opened, synchronize]
-  workflow_dispatch:
+    branches:
+      - '**'
 
 jobs:
-  deadcode-scan:
+  dead-code-clean:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Scan for Dead Java Files
-        id: scan
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build project
+        run: mvn clean compile --no-transfer-progress
+
+      - name: Find all module src/main/java folders
+        id: find-src
         run: |
-          echo "Scanning for unused Java classes..."
-          mkdir -p deadcode
-          for file in $(find testProject/src/main/java -name "*.java"); do
-            class=$(basename "$file" .java)
-            usage=$(grep -r "$class" src/main/java | grep -v "$file" || true)
-            if [ -z "$usage" ]; then
-              echo "Unused class detected: $class"
-              echo "$file" >> deadcode/list.txt
-            fi
+          echo "SRC_DIRS<<EOF" >> $GITHUB_ENV
+          find . -type d -path "*/src/main/java" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Run Dead Code Cleaner
+        run: |
+          for dir in $(find . -type d -path "*/src/main/java"); do
+            echo "Cleaning dead code in $dir"
+            java -jar dead-code-cleaner.jar "$dir"
           done
-          echo "files=$(cat deadcode/list.txt || true)" >> $GITHUB_OUTPUT
-
-      - name: Show Dead Code Summary
-        run: |
-          if [ -f deadcode/list.txt ]; then
-            echo "Dead code files found:"
-            cat deadcode/list.txt
-          else
-            echo "No dead code detected."
-          fi
-
-      - name: (Optional) Commit Cleanup
-        if: steps.scan.outputs.files != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "⚠️ Skipping auto-delete by default. Uncomment to remove files:"
-          # git rm $(cat deadcode/list.txt)
-          # git commit -m "🤖 Remove dead code"
-          # git push origin HEAD:${{ github.head_ref }}
