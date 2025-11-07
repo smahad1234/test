@@ -13,7 +13,7 @@ jobs:
         shell: bash
 
     steps:
-      # 1️⃣ Checkout PR branch
+      # 1️⃣ Checkout the PR branch
       - name: Checkout PR branch
         uses: actions/checkout@v3
         with:
@@ -36,10 +36,12 @@ jobs:
             fi
           done
 
-      # 4️⃣ Clone and build Dead Code Cleaner
-      - name: Build Dead Code Cleaner
+      # 4️⃣ Clone and build Dead Code Cleaner from private repo
+      - name: Clone and build Dead Code Cleaner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git clone https://github.com/your-org/dead-code-cleaner.git tools/dead-code-cleaner
+          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/your-org/dead-code-cleaner.git tools/dead-code-cleaner
           cd tools/dead-code-cleaner
           mvn clean package
           cp target/dead-code-cleaner.jar ../../dead-code-cleaner.jar
