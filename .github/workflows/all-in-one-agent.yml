@@ -13,7 +13,7 @@ jobs:
         shell: bash
 
     steps:
-      # 1️⃣ Checkout the PR branch
+      # 1️⃣ Checkout PR branch
       - name: Checkout PR branch
         uses: actions/checkout@v3
         with:
@@ -36,23 +36,22 @@ jobs:
             fi
           done
 
-      # 4️⃣ Clone and build Dead Code Cleaner from private repo
-      - name: Clone and build Dead Code Cleaner
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 4️⃣ Compile Dead Code Cleaner (from code in repo)
+      - name: Compile Dead Code Cleaner
         run: |
-          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/your-org/dead-code-cleaner.git tools/dead-code-cleaner
-          cd tools/dead-code-cleaner
-          mvn clean package
-          cp target/dead-code-cleaner.jar ../../dead-code-cleaner.jar
-          cd ../..
+          if [ -f "tools/dead-code-cleaner/pom.xml" ]; then
+            mvn -f tools/dead-code-cleaner/pom.xml clean package
+          fi
 
       # 5️⃣ Run Dead Code Cleaner on all src/main/java directories
       - name: Run Dead Code Cleaner
         run: |
           for dir in $(find . -type d -path "*/src/main/java"); do
-            echo "Cleaning dead code in $dir"
-            java -jar dead-code-cleaner.jar "$dir"
+            echo "Running Dead Code Cleaner in $dir"
+            # Assuming main class is tools.deadcode.Main
+            mvn exec:java -f tools/dead-code-cleaner/pom.xml \
+              -Dexec.mainClass="tools.deadcode.Main" \
+              -Dexec.args="$dir"
           done
 
       # 6️⃣ Commit cleaned code back to PR branch if there are changes
