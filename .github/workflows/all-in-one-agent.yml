@@ -1,59 +1,81 @@
-name: All-in-One GitHub Agent
+name: Cleanup Agent - PR Dead Code Reporter
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 12 * * *'
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
 
 jobs:
-  all-in-one:
+  dead-code-pr:
     runs-on: ubuntu-latest
     steps:
-      - name: Run All-in-One Agent
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Detect dead Python code
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          echo "=== Running All-in-One GitHub Agent ==="
-
-          NOW=$(date +%s)
-          STALE_DAYS=30
-
-          # --- Label new PRs ---
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUMBER=${{ github.event.pull_request.number }}
-            echo "[PR] Labeling PR #$PR_NUMBER with 'review-needed'"
+          pip install vulture
+          echo "=== Checking Python files ==="
+          DEAD=$(vulture .)
+          if [ ! -z "$DEAD" ]; then
+            echo "Dead Python code found, commenting on PR..."
             curl -s -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/labels" \
-              -d '{"labels":["review-needed"]}'
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+                 -d "{\"body\":\"⚠️ Dead Python code detected:\\n\`\`\`\n$DEAD\n\`\`\`\"}"
+          else
+            echo "No dead Python code found"
           fi
 
-          # --- Comment on stale issues ---
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "[Issues] Checking for stale issues..."
-            ISSUES=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                           -H "Accept: application/vnd.github.v3+json" \
-                           "https://api.github.com/repos/$REPO/issues?state=open")
-
-            echo "$ISSUES" | grep -E '"number":|"updated_at":' | \
-            awk 'NR%2{num=$2} !(NR%2){gsub(/[",]/,"",$2); print num, $2}' | \
-            while read NUM UPDATED; do
-              UPDATED_SEC=$(date -d "$UPDATED" +%s)
-              DIFF=$(( (NOW - UPDATED_SEC)/86400 ))
-              if [ $DIFF -ge $STALE_DAYS ]; then
-                echo "[Issues] Commenting on stale issue #$NUM (last updated $DIFF days ago)"
-                curl -s -X POST \
-                     -H "Authorization: token $GITHUB_TOKEN" \
-                     -H "Accept: application/vnd.github.v3+json" \
-                     "https://api.github.com/repos/$REPO/issues/$NUM/comments" \
-                     -d '{"body":"⚠️ This issue has been inactive for over 30 days. Please check if it is still relevant."}'
-              fi
-            done
+      - name: Detect dead JS/TS code
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          npm install -g ts-prune
+          echo "=== Checking JS/TS files ==="
+          DEAD=$(ts-prune)
+          if [ ! -z "$DEAD" ]; then
+            echo "Dead JS/TS code found, commenting on PR..."
+            curl -s -X POST \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 -H "Accept: application/vnd.github.v3+json" \
+                 "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+                 -d "{\"body\":\"⚠️ Dead JS/TS code detected:\\n\`\`\`\n$DEAD\n\`\`\`\"}"
+          else
+            echo "No dead JS/TS code found"
           fi
 
-          echo "=== All-in-One Agent Finished ==="
-
+      - name: Detect dead Java code
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "=== Checking Java classes ==="
+            mkdir -p deadcode-report
+            jdeps -verbose:class target/classes > deadcode-report/jdeps.txt
+            DEAD=$(grep -E "->" deadcode-report/jdeps.txt | sort | uniq)
+            if [ ! -z "$DEAD" ]; then
+              echo "Potential dead Java code found, commenting on PR..."
+              curl -s -X POST \
+                   -H "Authorization: token $GITHUB_TOKEN" \
+                   -H "Accept: application/vnd.github.v3+json" \
+                   "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+                   -d "{\"body\":\"⚠️ Potential dead Java code detected:\\n\`\`\`\n$DEAD\n\`\`\`\"}"
+            else
+              echo "No dead Java code found"
+            fi
+          else
+            echo "No Java project detected, skipping..."
