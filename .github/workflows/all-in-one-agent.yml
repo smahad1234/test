@@ -1,4 +1,4 @@
-name: Dead Code Sweeper - Java PR (Robust)
+name: Jakarta REST Integration Test Generator (Light)
 
 on:
   pull_request:
@@ -6,11 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  dead-code-pr:
+  generate-rest-tests:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout PR branch
         uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
 
       - name: Set up Java
         uses: actions/setup-java@v3
@@ -18,38 +25,65 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build Java Project (safe)
+      - name: Detect Changed Jakarta REST Files
+        id: changed
         run: |
-          if [ -f "mvnw" ]; then
-            echo "Building with mvnw..."
-            ./mvnw clean compile || echo "Build failed or skipped, continuing..."
-          elif [ -f "pom.xml" ]; then
-            echo "Building with Maven..."
-            mvn clean compile || echo "Build failed or skipped, continuing..."
-          else
-            echo "No Maven project detected, skipping build"
+          git fetch origin ${{ github.base_ref }}
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.java$' || true)
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
 
-      - name: Sweep Dead Java Code (safe)
+      - name: Generate Integration Test Stubs
+        if: steps.changed.outputs.changed != ''
+        run: |
+          mkdir -p generated-tests
+          echo "${{ steps.changed.outputs.changed }}" | while read file; do
+            [ -z "$file" ] && continue
+            if grep -q "@Path" "$file"; then
+              echo "Generating integration test for REST resource: $file"
+              class=$(basename "$file" .java)
+              testfile="generated-tests/${class}IT.java"
+
+              # extract first @Path annotation (basic, lightweight)
+              path=$(grep -m1 "@Path" "$file" | sed -E 's/.*@Path\("([^"]+)"\).*/\1/')
+              [ -z "$path" ] && path="/${class,,}"
+
+              cat <<EOF > "$testfile"
+package generated;
+
+import org.junit.jupiter.api.Test;
+import java.net.*;
+import java.io.*;
+
+public class ${class}IT {
+
+    private static final String BASE_URL = "http://localhost:8080${path}";
+
+    @Test
+    void test${class}Endpoint() throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(BASE_URL).openConnection();
+        conn.setRequestMethod("GET");
+        int code = conn.getResponseCode();
+        System.out.println("Response code: " + code);
+        assert(code == 200 || code == 404);
+    }
+}
+EOF
+            fi
+          done
+
+      - name: Commit & Push Generated Tests
+        if: steps.changed.outputs.changed != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
         run: |
-          if [ -d "target/classes" ]; then
-            echo "Scanning target/classes for potential dead code..."
-            mkdir -p deadcode-report
-            jdeps -verbose:class target/classes > deadcode-report/jdeps.txt
-            DEAD=$(grep -E "->" deadcode-report/jdeps.txt | sort | uniq)
-
-            if [ ! -z "$DEAD" ]; then
-              echo "Potential dead Java code found, commenting on PR #$PR_NUMBER..."
-              curl -s -X POST \
-                -H "Authorization: token $GITHUB_TOKEN" \
-                -H "Accept: application/vnd.github.v3+json" \
-                "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
-                -d "{\"body\":\"⚠️ Potential dead Java code detected:\\n\`\`\`\n$DEAD\n\`\`\`\"}"
-            else
-              echo "No dead Java code detected"
-            fi
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          mkdir -p src/test/java/generated
+          cp -r generated-tests/* src/test/java/generated/ || true
+          git add src/test/java/generated || true
+          if git diff --cached --quiet; then
+            echo "No new tests to commit."
           else
-            echo "target/classes directory not found, skipping dead code sweep"
+            git commit -m "🤖 Auto-generated Jakarta REST integration tests"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
