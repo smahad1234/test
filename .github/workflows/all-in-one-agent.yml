@@ -44,7 +44,7 @@ jobs:
       - name: Build and verify
         run: mvn -f $ROOT_POM clean verify
 
-      # 6️⃣ Analyze dependencies for unused declared dependencies
+      # 6️⃣ Analyze dependencies
       - name: Detect unused dependencies
         run: |
           mvn -f $ROOT_POM dependency:analyze | tee dependency-report.txt
@@ -66,14 +66,26 @@ jobs:
             echo "No unused dependencies detected."
           fi
 
-      # 8️⃣ Comment dependency analysis report on PR
+      # 8️⃣ Comment cleaned dependency analysis report on PR
       - name: Comment on PR
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const report = fs.readFileSync('dependency-report.txt', 'utf8');
+            let report = fs.readFileSync('dependency-report.txt', 'utf8');
+
+            // Remove Maven download progress and empty lines
+            report = report
+              .split('\n')
+              .filter(line => !line.includes('Progress') && !line.startsWith('Downloading') && line.trim() !== '')
+              .join('\n');
+
+            // Keep only relevant INFO/WARNING lines
+            report = report
+              .split('\n')
+              .filter(line => line.startsWith('[INFO]') || line.startsWith('[WARNING]'))
+              .join('\n');
 
             const prNumber = context.payload.pull_request?.number;
             if (!prNumber) {
