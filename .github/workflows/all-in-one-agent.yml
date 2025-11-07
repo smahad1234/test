@@ -13,7 +13,7 @@ jobs:
         shell: bash
 
     steps:
-      # 1️⃣ Checkout the PR branch
+      # 1️⃣ Checkout PR branch
       - name: Checkout PR branch
         uses: actions/checkout@v3
         with:
@@ -36,7 +36,12 @@ jobs:
             fi
           done
 
-      # 4️⃣ Run Dead Code Cleaner on all src/main/java directories
+      # 4️⃣ Download Dead Code Cleaner jar
+      - name: Download Dead Code Cleaner
+        run: |
+          curl -L -o dead-code-cleaner.jar https://example.com/path/to/dead-code-cleaner.jar
+
+      # 5️⃣ Run Dead Code Cleaner on all src/main/java directories
       - name: Run Dead Code Cleaner
         run: |
           for dir in $(find . -type d -path "*/src/main/java"); do
@@ -44,7 +49,7 @@ jobs:
             java -jar dead-code-cleaner.jar "$dir"
           done
 
-      # 5️⃣ Commit cleaned code back to the PR branch if there are changes
+      # 6️⃣ Commit cleaned code back to PR branch if there are changes
       - name: Commit cleaned code
         run: |
           git config --global user.name "github-actions[bot]"
