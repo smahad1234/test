@@ -1,53 +1,88 @@
-name: Dead Code Cleaner Bot
+name: PR Dead Code Cleanup (Maven Multi-Module, Java 21)
 
 on:
   pull_request:
-    branches:
-      - '**'
+    types: [opened, synchronize]
 
 jobs:
-  dead-code-clean:
+  cleanup:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
 
     steps:
       # 1️⃣ Checkout PR branch
-      - name: Checkout PR branch
+      - name: Checkout PR
         uses: actions/checkout@v3
+
+      # 2️⃣ Set up Java 21
+      - name: Set up Java
+        uses: actions/setup-java@v3
         with:
-          fetch-depth: 0
+          distribution: 'temurin'
+          java-version: '21'
 
-      # 2️⃣ Build all modules (optional)
-      - name: Build all modules
-        run: |
-          for module in */; do
-            if [ -f "$module/pom.xml" ]; then
-              mvn -f "$module/pom.xml" clean compile --no-transfer-progress
-            fi
-          done
+      # 3️⃣ Cache Maven dependencies
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
 
-      # 3️⃣ Simple dead code cleaner: remove empty Java files
-      - name: Remove empty Java files
+      # 4️⃣ Detect root POM
+      - name: Find root POM
+        id: rootpom
         run: |
-          for dir in $(find . -type d -path "*/src/main/java"); do
-            echo "Cleaning dead code in $dir"
-            find "$dir" -type f -name "*.java" -empty -delete
-          done
-
-      # 4️⃣ Commit changes only if PR is from same repo
-      - name: Commit cleaned code
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: run Dead Code Cleaner"
-            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} HEAD
-          else
-            echo "No changes to commit"
+          ROOT_POM=$(find . -name "pom.xml" -exec grep -l "<modules>" {} \; | head -n 1)
+          if [ -z "$ROOT_POM" ]; then
+            ROOT_POM=$(find . -name "pom.xml" | head -n 1)
           fi
+          echo "ROOT_POM=$ROOT_POM" >> $GITHUB_ENV
+          echo "Root POM detected: $ROOT_POM"
+
+      # 5️⃣ Build and verify project
+      - name: Build and verify
+        run: mvn -f $ROOT_POM clean verify
+
+      # 6️⃣ Analyze dependencies for unused declared dependencies
+      - name: Detect unused dependencies
+        run: |
+          mvn -f $ROOT_POM dependency:analyze | tee dependency-report.txt
+
+      # 7️⃣ Commit cleanup suggestions if unused dependencies detected
+      - name: Commit cleanup suggestions
+        run: |
+          UNUSED_LINES=$(grep "\[WARNING\] Unused declared dependencies found:" -A 10 dependency-report.txt || true)
+          if [ -n "$UNUSED_LINES" ]; then
+            echo "Unused dependencies detected:"
+            echo "$UNUSED_LINES"
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git add pom.xml
+            git diff-index --quiet HEAD || git commit -m "Cleanup: remove unused dependencies based on dependency:analyze"
+            git push
+            echo "Commit created with unused dependency cleanup suggestions."
+          else
+            echo "No unused dependencies detected."
+          fi
+
+      # 8️⃣ Comment dependency analysis report on PR
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('dependency-report.txt', 'utf8');
+
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) {
+              console.log("No pull request number found. Skipping comment.");
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: "📄 Dead code / unused dependency analysis report:\n```\n" + report + "\n```"
+              });
+            }
