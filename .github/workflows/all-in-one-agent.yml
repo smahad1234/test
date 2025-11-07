@@ -1,4 +1,4 @@
-name: Lightweight Jakarta REST Test Generator
+name: Dead Code Cleaner - Lightweight
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  generate-rest-tests:
+  deadcode-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -15,73 +15,37 @@ jobs:
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Scan Jakarta REST Endpoints
+      - name: Scan for Dead Java Files
         id: scan
         run: |
-          mkdir -p generated-tests
-          touch endpoints.txt
-          for src in $(find untitled/src/main/java -name "*.java"); do
-            if grep -q "@Path" "$src"; then
-              echo "$src" >> endpoints.txt
+          echo "Scanning for unused Java classes..."
+          mkdir -p deadcode
+          for file in $(find src/main/java -name "*.java"); do
+            class=$(basename "$file" .java)
+            usage=$(grep -r "$class" src/main/java | grep -v "$file" || true)
+            if [ -z "$usage" ]; then
+              echo "Unused class detected: $class"
+              echo "$file" >> deadcode/list.txt
             fi
           done
-          echo "found=$(cat endpoints.txt || true)" >> $GITHUB_OUTPUT
+          echo "files=$(cat deadcode/list.txt || true)" >> $GITHUB_OUTPUT
 
-      - name: Generate REST Integration Tests
-        if: steps.scan.outputs.found != ''
+      - name: Show Dead Code Summary
         run: |
-          while read src; do
-            [ -z "$src" ] && continue
-            class=$(basename "$src" .java)
-            pkg=$(grep -m1 '^package ' "$src" | sed 's/package //' | sed 's/;//')
-            path=$(grep -m1 "@Path" "$src" | sed -E 's/.*@Path\("?(.*?)"?\).*/\1/')
-            test_dir="src/test/java/${pkg//.//}"
-            mkdir -p "$test_dir"
-            test_file="$test_dir/${class}IT.java"
+          if [ -f deadcode/list.txt ]; then
+            echo "Dead code files found:"
+            cat deadcode/list.txt
+          else
+            echo "No dead code detected."
+          fi
 
-            cat <<EOF > "$test_file"
-package $pkg;
-
-import org.junit.jupiter.api.Test;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import static org.junit.jupiter.api.Assertions.*;
-
-public class ${class}IT {
-
-    @Test
-    void test${class}Endpoint() throws Exception {
-        String baseUrl = "http://localhost:8080${path}";
-        HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl).openConnection();
-        connection.setRequestMethod("GET");
-        int responseCode = connection.getResponseCode();
-        System.out.println("Testing: " + baseUrl + " -> " + responseCode);
-        assertTrue(responseCode == 200 || responseCode == 404);
-    }
-}
-EOF
-          done < endpoints.txt
-
-      - name: Commit & Push Generated Tests
-        if: steps.scan.outputs.found != ''
+      - name: (Optional) Commit Cleanup
+        if: steps.scan.outputs.files != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git add src/test/java/
-          if git diff --cached --quiet; then
-            echo "No new REST tests to commit."
-          else
-            git commit -m "🤖 Auto-generated Jakarta REST integration tests"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
+          echo "⚠️ Skipping auto-delete by default. Uncomment to remove files:"
+          # git rm $(cat deadcode/list.txt)
+          # git commit -m "🤖 Remove dead code"
+          # git push origin HEAD:${{ github.head_ref }}
