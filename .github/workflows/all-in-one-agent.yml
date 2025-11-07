@@ -1,1 +1,59 @@
+name: All-in-One GitHub Agent
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 * * *'
+  pull_request:
+    types: [opened]
+
+jobs:
+  all-in-one:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run All-in-One Agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "=== Running All-in-One GitHub Agent ==="
+
+          NOW=$(date +%s)
+          STALE_DAYS=30
+
+          # --- Label new PRs ---
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            echo "[PR] Labeling PR #$PR_NUMBER with 'review-needed'"
+            curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/labels" \
+              -d '{"labels":["review-needed"]}'
+          fi
+
+          # --- Comment on stale issues ---
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "[Issues] Checking for stale issues..."
+            ISSUES=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                           -H "Accept: application/vnd.github.v3+json" \
+                           "https://api.github.com/repos/$REPO/issues?state=open")
+
+            echo "$ISSUES" | grep -E '"number":|"updated_at":' | \
+            awk 'NR%2{num=$2} !(NR%2){gsub(/[",]/,"",$2); print num, $2}' | \
+            while read NUM UPDATED; do
+              UPDATED_SEC=$(date -d "$UPDATED" +%s)
+              DIFF=$(( (NOW - UPDATED_SEC)/86400 ))
+              if [ $DIFF -ge $STALE_DAYS ]; then
+                echo "[Issues] Commenting on stale issue #$NUM (last updated $DIFF days ago)"
+                curl -s -X POST \
+                     -H "Authorization: token $GITHUB_TOKEN" \
+                     -H "Accept: application/vnd.github.v3+json" \
+                     "https://api.github.com/repos/$REPO/issues/$NUM/comments" \
+                     -d '{"body":"⚠️ This issue has been inactive for over 30 days. Please check if it is still relevant."}'
+              fi
+            done
+          fi
+
+          echo "=== All-in-One Agent Finished ==="
 
