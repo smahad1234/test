@@ -1,4 +1,4 @@
-name: PR Dead Code Cleanup (Maven Multi-Module)
+name: PR Dead Code Cleanup (Auto-Commit Suggestions)
 
 on:
   pull_request:
@@ -9,16 +9,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the PR branch
-      - name: Checkout PR code
+      # 1️⃣ Checkout PR branch
+      - name: Checkout PR
         uses: actions/checkout@v3
 
-      # 2️⃣ Set up the correct Java version
-      - name: Set up Java 21
+      # 2️⃣ Set up Java 21
+      - name: Set up Java
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
-          java-version: '21'  # Must match your pom.xml target
+          java-version: '21'
 
       # 3️⃣ Cache Maven dependencies
       - name: Cache Maven packages
@@ -29,45 +29,54 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # 4️⃣ Detect the root POM (parent with <modules>)
+      # 4️⃣ Detect root POM
       - name: Find root POM
         id: rootpom
         run: |
           ROOT_POM=$(find . -name "pom.xml" -exec grep -l "<modules>" {} \; | head -n 1)
           if [ -z "$ROOT_POM" ]; then
-            echo "No multi-module root POM found. Using first pom.xml"
             ROOT_POM=$(find . -name "pom.xml" | head -n 1)
           fi
           echo "ROOT_POM=$ROOT_POM" >> $GITHUB_ENV
           echo "Root POM detected: $ROOT_POM"
 
-      # 5️⃣ Verify the build across all modules
-      - name: Verify Maven Multi-Module Build
+      # 5️⃣ Build and verify project
+      - name: Build and verify
         run: mvn -f $ROOT_POM clean verify
 
-      # 6️⃣ Detect dead code and unused dependencies
-      - name: Detect Dead Code
-        run: mvn -f $ROOT_POM dependency:analyze jdepend:generate
-
-      # 7️⃣ Auto-remove unused imports and format code with Spotless
-      - name: Format code and cleanup imports
-        run: mvn -f $ROOT_POM spotless:apply
-
-      # 8️⃣ Commit and push cleanup changes to PR branch
-      - name: Commit cleanup changes
+      # 6️⃣ Analyze dependencies
+      - name: Detect unused dependencies
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add .
-          git diff-index --quiet HEAD || git commit -m "Cleanup: remove unused code and imports via workflow"
-          git push
+          mvn -f $ROOT_POM dependency:analyze | tee dependency-report.txt
 
-      # 9️⃣ Comment on the PR
+      # 7️⃣ Extract unused dependencies and prepare commit
+      - name: Prepare cleanup commit
+        run: |
+          UNUSED_LINES=$(grep "\[WARNING\] Unused declared dependencies found:" -A 10 dependency-report.txt || true)
+          if [ -n "$UNUSED_LINES" ]; then
+            echo "Unused dependencies detected:"
+            echo "$UNUSED_LINES"
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git add pom.xml
+            git diff-index --quiet HEAD || git commit -m "Cleanup: remove unused dependencies based on dependency:analyze"
+            git push
+            echo "Commit created with unused dependency cleanup suggestions."
+          else
+            echo "No unused dependencies detected."
+          fi
+
+      # 8️⃣ Comment report on PR
       - name: Comment on PR
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('dependency-report.txt', 'utf8');
             github.issues.createComment({
               owner: context.repo.owner,
-              repo: context.repo.re
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: "📄 Dead code / unused dependency analysis report:\n```\n" + report + "\n```"
+            })
