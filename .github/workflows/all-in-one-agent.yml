@@ -1,100 +1,115 @@
-name: PR Dead Code Cleanup (Maven Multi-Module, Java 21)
+name: Dead Code & Dependency Analyzer
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    branches:
+      - '**'
 
 jobs:
-  cleanup:
+  analysis:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # Optional PAT for forked PRs
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN || '' }}
 
     steps:
       # 1️⃣ Checkout PR branch
       - name: Checkout PR
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       # 2️⃣ Set up Java 21
-      - name: Set up Java
+      - name: Setup Java
         uses: actions/setup-java@v3
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '21'
 
-      # 3️⃣ Cache Maven dependencies
-      - name: Cache Maven packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      # 4️⃣ Detect root POM
-      - name: Find root POM
-        id: rootpom
+      # 3️⃣ Build all modules
+      - name: Build all modules
         run: |
-          ROOT_POM=$(find . -name "pom.xml" -exec grep -l "<modules>" {} \; | head -n 1)
-          if [ -z "$ROOT_POM" ]; then
-            ROOT_POM=$(find . -name "pom.xml" | head -n 1)
-          fi
-          echo "ROOT_POM=$ROOT_POM" >> $GITHUB_ENV
-          echo "Root POM detected: $ROOT_POM"
+          for module in */; do
+            if [ -f "$module/pom.xml" ]; then
+              mvn -f "$module/pom.xml" clean compile --no-transfer-progress
+            fi
+          done
 
-      # 5️⃣ Build and verify project
-      - name: Build and verify
-        run: mvn -f $ROOT_POM clean verify
-
-      # 6️⃣ Analyze dependencies
-      - name: Detect unused dependencies
+      # 4️⃣ Minimal dead code cleaner: remove empty Java files
+      - name: Dead code cleaner
+        id: deadcode
         run: |
-          mvn -f $ROOT_POM dependency:analyze | tee dependency-report.txt
+          cleaned_count=0
+          for dir in $(find . -type d -path "*/src/main/java"); do
+            files=$(find "$dir" -type f -name "*.java" -empty)
+            for f in $files; do
+              rm "$f"
+              echo "Removed empty file: $f"
+              cleaned_count=$((cleaned_count + 1))
+            done
+          done
+          echo "cleaned_count=$cleaned_count" >> $GITHUB_OUTPUT
 
-      # 7️⃣ Commit cleanup suggestions if unused dependencies detected
-      - name: Commit cleanup suggestions
+      # 5️⃣ Run Maven dependency analysis
+      - name: Run dependency analysis
+        id: dep
         run: |
-          UNUSED_LINES=$(grep "\[WARNING\] Unused declared dependencies found:" -A 10 dependency-report.txt || true)
-          if [ -n "$UNUSED_LINES" ]; then
-            echo "Unused dependencies detected:"
-            echo "$UNUSED_LINES"
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
-            git add pom.xml
-            git diff-index --quiet HEAD || git commit -m "Cleanup: remove unused dependencies based on dependency:analyze"
-            git push
-            echo "Commit created with unused dependency cleanup suggestions."
+          mkdir -p dep-report
+          for module in */; do
+            if [ -f "$module/pom.xml" ]; then
+              mvn -f "$module/pom.xml" dependency:analyze > dep-report/"${module%/}-dep.txt" || true
+            fi
+          done
+          # Combine all reports into one string for GitHub Script
+          dep_report=$(cat dep-report/*.txt)
+          echo "dep_report<<EOF" >> $GITHUB_OUTPUT
+          echo "$dep_report" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # 6️⃣ Commit cleaned code if same-repo PR
+      - name: Commit dead code changes
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: run Dead Code Cleaner"
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} HEAD
           else
-            echo "No unused dependencies detected."
-          fi
+            echo "No changes to commit"
 
-      # 8️⃣ Comment cleaned dependency analysis report on PR
-      - name: Comment on PR
+      # 7️⃣ Post combined report as PR comment
+      - name: Post report as PR comment
         uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.GITHUB_TOKEN }}
           script: |
-            const fs = require('fs');
-            let report = fs.readFileSync('dependency-report.txt', 'utf8');
-
-            // Remove Maven download progress and empty lines
-            report = report
-              .split('\n')
-              .filter(line => !line.includes('Progress') && !line.startsWith('Downloading') && line.trim() !== '')
-              .join('\n');
-
-            // Keep only relevant INFO/WARNING lines
-            report = report
-              .split('\n')
-              .filter(line => line.startsWith('[INFO]') || line.startsWith('[WARNING]'))
-              .join('\n');
-
-            const prNumber = context.payload.pull_request?.number;
+            const prNumber = context.payload.pull_request.number;
             if (!prNumber) {
-              console.log("No pull request number found. Skipping comment.");
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: "📄 Dead code / unused dependency analysis report:\n```\n" + report + "\n```"
-              });
+              console.log("No PR number found, skipping comment.");
+              return;
             }
+
+            const cleaned = parseInt(process.env.cleaned_count || '0');
+            const depReport = `\`\`\`\n${process.env.dep_report || 'No dependency report.'}\n\`\`\``;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `📄 **Dead Code & Dependency Analysis Report**\n\n- Removed **${cleaned} empty Java file(s)**\n- Maven dependency analysis:\n${depReport}`
+            });
