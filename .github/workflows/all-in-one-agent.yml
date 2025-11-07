@@ -13,7 +13,7 @@ jobs:
         shell: bash
 
     steps:
-      # 1️⃣ Checkout PR branch
+      # 1️⃣ Checkout the PR branch
       - name: Checkout PR branch
         uses: actions/checkout@v3
         with:
@@ -26,7 +26,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # 3️⃣ Build all modules (multi-module support)
+      # 3️⃣ Build all modules in the main repo
       - name: Build all modules
         run: |
           for module in */; do
@@ -36,10 +36,14 @@ jobs:
             fi
           done
 
-      # 4️⃣ Download Dead Code Cleaner jar
-      - name: Download Dead Code Cleaner
+      # 4️⃣ Clone and build Dead Code Cleaner
+      - name: Build Dead Code Cleaner
         run: |
-          curl -L -o dead-code-cleaner.jar https://example.com/path/to/dead-code-cleaner.jar
+          git clone https://github.com/your-org/dead-code-cleaner.git tools/dead-code-cleaner
+          cd tools/dead-code-cleaner
+          mvn clean package
+          cp target/dead-code-cleaner.jar ../../dead-code-cleaner.jar
+          cd ../..
 
       # 5️⃣ Run Dead Code Cleaner on all src/main/java directories
       - name: Run Dead Code Cleaner
