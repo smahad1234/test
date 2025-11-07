@@ -15,6 +15,7 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
+          distribution: 'temurin'   # Fixed: required input
           java-version: '17'
 
       - name: Cache Maven packages
@@ -28,11 +29,11 @@ jobs:
       - name: Run Maven Verify
         run: mvn clean verify
 
-      - name: Detect Dead Code (Unused Classes / Methods)
+      - name: Detect Dead Code
         run: |
-          mvn jdepend:generate | tee jdepend-report.txt
           mvn dependency:analyze | tee dependency-report.txt
-          echo "Reports generated. Copilot can be used to suggest removal of unused classes/methods."
+          mvn jdepend:generate | tee jdepend-report.txt
+          echo "Reports generated. Workflow can optionally remove unused imports automatically."
 
       - name: Auto-remove unused imports and format code
         run: |
