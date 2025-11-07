@@ -1,70 +1,56 @@
-name: Dead Code Cleaner Bot
+name: PR Dead Code Cleanup
 
 on:
   pull_request:
-    branches:
-      - '**'
+    types: [opened, synchronize]
 
 jobs:
-  dead-code-clean:
+  cleanup:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
 
     steps:
-      # 1️⃣ Checkout PR branch
-      - name: Checkout PR branch
+      - name: Checkout PR code
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
-      # 2️⃣ Set up Java 21
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
-          distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
-      # 3️⃣ Build all modules in the main repo
-      - name: Build all modules
-        run: |
-          for module in */; do
-            if [ -f "$module/pom.xml" ]; then
-              echo "Building $module"
-              mvn -f "$module/pom.xml" clean compile --no-transfer-progress
-            fi
-          done
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
 
-      # 4️⃣ Compile Dead Code Cleaner (from code in repo)
-      - name: Compile Dead Code Cleaner
-        run: |
-          if [ -f "tools/dead-code-cleaner/pom.xml" ]; then
-            mvn -f tools/dead-code-cleaner/pom.xml clean package
-          fi
+      - name: Run Maven Verify
+        run: mvn clean verify
 
-      # 5️⃣ Run Dead Code Cleaner on all src/main/java directories
-      - name: Run Dead Code Cleaner
+      - name: Detect Dead Code (Unused Classes / Methods)
         run: |
-          for dir in $(find . -type d -path "*/src/main/java"); do
-            echo "Running Dead Code Cleaner in $dir"
-            # Assuming main class is tools.deadcode.Main
-            mvn exec:java -f tools/dead-code-cleaner/pom.xml \
-              -Dexec.mainClass="tools.deadcode.Main" \
-              -Dexec.args="$dir"
-          done
+          mvn jdepend:generate | tee jdepend-report.txt
+          mvn dependency:analyze | tee dependency-report.txt
+          echo "Reports generated. Copilot can be used to suggest removal of unused classes/methods."
 
-      # 6️⃣ Commit cleaned code back to PR branch if there are changes
-      - name: Commit cleaned code
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Auto-remove unused imports and format code
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          mvn spotless:apply
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
           git add .
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: run Dead Code Cleaner"
-            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} HEAD
-          else
-            echo "No changes to commit"
-          fi
+          git diff-index --quiet HEAD || git commit -m "Cleanup: remove unused code and imports via workflow"
+          git push
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: "✅ Dead code cleanup applied automatically by workflow."
+            })
