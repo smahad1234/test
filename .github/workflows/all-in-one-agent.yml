@@ -1,4 +1,4 @@
-name: Jakarta REST Integration Test Generator (Light)
+name: Lightweight Jakarta REST Test Generator
 
 on:
   pull_request:
@@ -8,81 +8,79 @@ on:
 jobs:
   generate-rest-tests:
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
       pull-requests: write
 
     steps:
       - name: Checkout PR branch
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
 
       - name: Set up Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Detect Changed Jakarta REST Files
-        id: changed
-        run: |
-          git fetch origin ${{ github.base_ref }}
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.java$' || true)
-          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
-
-      - name: Generate Integration Test Stubs
-        if: steps.changed.outputs.changed != ''
+      - name: Scan Jakarta REST Endpoints
+        id: scan
         run: |
           mkdir -p generated-tests
-          echo "${{ steps.changed.outputs.changed }}" | while read file; do
-            [ -z "$file" ] && continue
-            if grep -q "@Path" "$file"; then
-              echo "Generating integration test for REST resource: $file"
-              class=$(basename "$file" .java)
-              testfile="generated-tests/${class}IT.java"
+          touch endpoints.txt
+          for src in $(find src/main/java -name "*.java"); do
+            if grep -q "@Path" "$src"; then
+              echo "$src" >> endpoints.txt
+            fi
+          done
+          echo "found=$(cat endpoints.txt || true)" >> $GITHUB_OUTPUT
 
-              # extract first @Path annotation (basic, lightweight)
-              path=$(grep -m1 "@Path" "$file" | sed -E 's/.*@Path\("([^"]+)"\).*/\1/')
-              [ -z "$path" ] && path="/${class,,}"
+      - name: Generate REST Integration Tests
+        if: steps.scan.outputs.found != ''
+        run: |
+          while read src; do
+            [ -z "$src" ] && continue
+            class=$(basename "$src" .java)
+            pkg=$(grep -m1 '^package ' "$src" | sed 's/package //' | sed 's/;//')
+            path=$(grep -m1 "@Path" "$src" | sed -E 's/.*@Path\("?(.*?)"?\).*/\1/')
+            test_dir="src/test/java/${pkg//.//}"
+            mkdir -p "$test_dir"
+            test_file="$test_dir/${class}IT.java"
 
-              cat <<EOF > "$testfile"
-package generated;
+            cat <<EOF > "$test_file"
+package $pkg;
 
 import org.junit.jupiter.api.Test;
-import java.net.*;
-import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class ${class}IT {
 
-    private static final String BASE_URL = "http://localhost:8080${path}";
-
     @Test
     void test${class}Endpoint() throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(BASE_URL).openConnection();
-        conn.setRequestMethod("GET");
-        int code = conn.getResponseCode();
-        System.out.println("Response code: " + code);
-        assert(code == 200 || code == 404);
+        String baseUrl = "http://localhost:8080${path}";
+        HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl).openConnection();
+        connection.setRequestMethod("GET");
+        int responseCode = connection.getResponseCode();
+        System.out.println("Testing: " + baseUrl + " -> " + responseCode);
+        assertTrue(responseCode == 200 || responseCode == 404);
     }
 }
 EOF
-            fi
-          done
+          done < endpoints.txt
 
       - name: Commit & Push Generated Tests
-        if: steps.changed.outputs.changed != ''
+        if: steps.scan.outputs.found != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          mkdir -p src/test/java/generated
-          cp -r generated-tests/* src/test/java/generated/ || true
-          git add src/test/java/generated || true
+          git add src/test/java/
           if git diff --cached --quiet; then
-            echo "No new tests to commit."
+            echo "No new REST tests to commit."
           else
             git commit -m "🤖 Auto-generated Jakarta REST integration tests"
             git push origin HEAD:${{ github.head_ref }}
