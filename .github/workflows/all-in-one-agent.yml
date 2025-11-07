@@ -26,26 +26,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      - name: List Maven modules
-        run: mvn -B -q help:all-profiles | tee modules.txt
+      - name: Find root POM
+        id: rootpom
+        run: |
+          ROOT_POM=$(find . -name "pom.xml" -exec grep -l "<modules>" {} \; | head -n 1)
+          if [ -z "$ROOT_POM" ]; then
+            echo "No multi-module root POM found. Using first pom.xml"
+            ROOT_POM=$(find . -name "pom.xml" | head -n 1)
+          fi
+          echo "ROOT_POM=$ROOT_POM" >> $GITHUB_ENV
+          echo "Root POM detected: $ROOT_POM"
 
       - name: Verify Maven Multi-Module Build
-        run: mvn clean verify
+        run: mvn -f $ROOT_POM clean verify
 
-      - name: Detect Dead Code in All Modules
-        run: |
-          echo "Running dependency analysis for all modules..."
-          for pom in $(find . -name "pom.xml"); do
-            echo "Analyzing $pom"
-            mvn -f $pom dependency:analyze jdepend:generate
-          done
+      - name: Detect Dead Code
+        run: mvn -f $ROOT_POM dependency:analyze jdepend:generate
 
       - name: Auto-remove unused imports with Spotless
-        run: |
-          for pom in $(find . -name "pom.xml"); do
-            echo "Formatting $pom"
-            mvn -f $pom spotless:apply
-          done
+        run: mvn -f $ROOT_POM spotless:apply
 
       - name: Commit cleanup changes
         run: |
@@ -64,5 +63,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: "✅ Dead code cleanup applied automatically by workflow to all Maven modules."
+              body: "✅ Dead code cleanup applied automatically to all Maven modules."
             })
