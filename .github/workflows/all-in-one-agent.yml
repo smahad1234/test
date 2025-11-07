@@ -3,6 +3,7 @@ name: Dead Code Sweeper - Java PR
 on:
   pull_request:
     types: [opened, synchronize]
+  workflow_dispatch:
 
 jobs:
   dead-code-pr:
@@ -25,7 +26,7 @@ jobs:
           else
             echo "No Maven project detected, skipping build"
 
-      - name: Sweep Dead Java Code on PR
+      - name: Sweep Dead Java Code
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
