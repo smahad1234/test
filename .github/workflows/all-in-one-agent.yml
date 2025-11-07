@@ -21,7 +21,7 @@ jobs:
         run: |
           echo "Scanning for unused Java classes..."
           mkdir -p deadcode
-          for file in $(find src/main/java -name "*.java"); do
+          for file in $(find testProject/src/main/java -name "*.java"); do
             class=$(basename "$file" .java)
             usage=$(grep -r "$class" src/main/java | grep -v "$file" || true)
             if [ -z "$usage" ]; then
