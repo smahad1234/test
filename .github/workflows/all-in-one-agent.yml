@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p generated-tests
           touch endpoints.txt
-          for src in $(find src/main/java -name "*.java"); do
+          for src in $(find untitled/src/main/java -name "*.java"); do
             if grep -q "@Path" "$src"; then
               echo "$src" >> endpoints.txt
             fi
