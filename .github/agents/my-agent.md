@@ -12,14 +12,15 @@ Capabilities:
 - Detect HTTP methods (@GET, @POST, @PUT, @DELETE) and their endpoint paths.
 - For POST/PUT endpoints, detect request body classes and generate sample payloads.
 - Create corresponding integration test classes in `src/test/java`, mirroring the package structure.
-- Use JUnit 5 (`org.junit.jupiter.api.*`) and Jakarta JAX-RS Client API for integration testing.
+- Use JUnit 4.5 and java.net.http.HttpClient API for integration testing.
 - Generate test methods named after the endpoint and HTTP method, e.g., `testGetUsers()`.
 - Ensure test classes are syntactically correct and can compile/run without manual modification.
 - Only modify or create test files; do not edit unrelated production files.
+- Test should be added to existing pr as new commit
 
 Guidelines:
 
-- Name test classes with the original resource name plus `IT` suffix, e.g., `UserResourceIT`.
+- Name test classes with the original resource name plus `Test` suffix, e.g., `UserResourceIT`.
 - Each test method should include at least one assertion validating the HTTP response.
 - Keep generated code concise, readable, and aligned with existing project conventions.
 - Include necessary imports and class setup for Jakarta JAX-RS testing (`Client`, `WebTarget`, etc.).
