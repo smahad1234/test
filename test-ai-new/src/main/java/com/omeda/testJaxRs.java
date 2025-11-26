@@ -1,6 +1,4 @@
 package com.omeda;
-import jakarta.ws.rs.*;
-import jakarta.ws.rs.core.MediaType;
 
 public class testJaxRs {
 
