@@ -84,4 +84,82 @@ public class AudienceElementServiceTest {
         Assert.assertEquals("HTTP response 200", 200, response.statusCode());
         Assert.assertNotNull("Response body should not be null", response.body());
     }
+
+    @Test
+    public void test_saveAudienceElement_valid() throws IOException, InterruptedException {
+        // Test for PATCH endpoint at {elementId}/audience
+        Integer elementId = 1;
+        String baseUrl = "http://localhost:8080/api";
+
+        // Sample request body for RequestedAudienceElementSave
+        String requestBody = "{" +
+                "\"elementDescription\": \"Test Audience Element\"," +
+                "\"statusCode\": 1," +
+                "\"reenterAudience\": true," +
+                "\"reenterLimit\": 5," +
+                "\"reenterMonth\": 12," +
+                "\"reenterWeek\": 4" +
+                "}";
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(baseUrl + "/" + elementId + "/audience"))
+                .header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+
+        java.net.http.HttpResponse<String> response = client.send(request,
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        Assert.assertNotNull("Response should not be null", response);
+        Assert.assertEquals("HTTP response 200", 200, response.statusCode());
+        Assert.assertNotNull("Response body should not be null", response.body());
+    }
+
+    @Test
+    public void test_saveAudienceElement_invalidElementId() throws IOException, InterruptedException {
+        // Test for PATCH endpoint with invalid elementId
+        Integer invalidElementId = -1;
+        String baseUrl = "http://localhost:8080/api";
+
+        String requestBody = "{" +
+                "\"elementDescription\": \"Test Audience Element\"" +
+                "}";
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(baseUrl + "/" + invalidElementId + "/audience"))
+                .header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+
+        java.net.http.HttpResponse<String> response = client.send(request,
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        Assert.assertNotNull("Response should not be null", response);
+        // Expecting either 400 Bad Request or 404 Not Found for invalid element ID
+        Assert.assertTrue("HTTP response should indicate error",
+                response.statusCode() == 400 || response.statusCode() == 404);
+    }
+
+    @Test
+    public void test_getAudience_notFound() throws IOException, InterruptedException {
+        // Test for GET endpoint with non-existent elementId
+        Integer nonExistentElementId = 999999;
+        String baseUrl = "http://localhost:8080/api";
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(baseUrl + "/" + nonExistentElementId + "/test"))
+                .header("Content-Type", "application/json")
+                .GET()
+                .build();
+
+        java.net.http.HttpResponse<String> response = client.send(request,
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        Assert.assertNotNull("Response should not be null", response);
+        // Non-existent element should return 404
+        Assert.assertEquals("HTTP response 404", 404, response.statusCode());
+    }
 }
