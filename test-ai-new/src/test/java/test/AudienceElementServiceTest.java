@@ -1,9 +1,9 @@
 package test;
 
+import org.junit.Test;
+
 import java.io.IOException;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.function.Supplier;
 
 public class AudienceElementServiceTest {
 
