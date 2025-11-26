@@ -10,7 +10,6 @@ public class AudienceElementService {
     public AudienceElementSchema getAudience(@BeanParam RequestedDatabase requestDetail,
                                              @NotNull @PathParam(OdysseyConstants.ELEMENT_ID) Integer elementId) throws ParseException {
 
-        System.out.println("testJaxRs getAudience called with elementId: " + elementId);
         return new AudienceElementSchema();
 
     }
