@@ -1,5 +1,6 @@
 package test;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -61,5 +62,26 @@ public class AudienceElementServiceTest {
                 Assert.assertFalse("suppression selectionName missing", supp.getSuppressionSelectionCriteriaName().isBlank());
             }
         }
+    }
+
+    @Test
+    public void test_getAudience_valid() throws IOException, InterruptedException {
+        // Test for GET endpoint at {elementId}/test
+        Integer elementId = 1;
+        String baseUrl = "http://localhost:8080/api";
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(baseUrl + "/" + elementId + "/test"))
+                .header("Content-Type", "application/json")
+                .GET()
+                .build();
+
+        java.net.http.HttpResponse<String> response = client.send(request, 
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        Assert.assertNotNull("Response should not be null", response);
+        Assert.assertEquals("HTTP response 200", 200, response.statusCode());
+        Assert.assertNotNull("Response body should not be null", response.body());
     }
 }
