@@ -1,10 +1,11 @@
 package com.omeda;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import io.swagger.v3.oas.annotations.Operation;
 
 public class testJaxRs {
     @GET
-    @Path("{/upload-file/internal/source-number/{sourceNumber}")
+    @Path("/upload-file/internal/source-number/{sourceNumber}")
     @Produces({MediaType.APPLICATION_JSON})
     @Operation(summary = "Get file data from an internal audience source.",
             description="Get file data details for a single internal audience source.")
