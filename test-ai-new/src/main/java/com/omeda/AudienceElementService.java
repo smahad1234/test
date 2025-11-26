@@ -1,6 +1,6 @@
 package com.omeda;
 
-public class testJaxRs {
+public class AudienceElementService {
 
     @GET
     @Path("{" + OdysseyConstants.ELEMENT_ID + "}/test")
