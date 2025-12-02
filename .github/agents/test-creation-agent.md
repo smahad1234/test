@@ -44,7 +44,7 @@ This agent runs in **Existing Already Opened PR for a branch**.
     - Check if existing tests exist; if so, do not create duplicates.
     - Tests should be added to the existing PR for branch as a new commit
     - Use JUnit 4.5 and java.net.http.HttpClient API for integration testing.
-    - Create tests similar to existing test cases for jersey resources in the project.
+    - Create tests similar to existing jersey test cases for consistency.
 
 ## Output
 - Generated or updated JUnit test cases saved into the PR branch.
