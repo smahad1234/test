@@ -84,4 +84,46 @@ public class AudienceElementServiceTest {
         Assert.assertEquals("HTTP response 200", 200, response.statusCode());
         Assert.assertNotNull("Response body should not be null", response.body());
     }
+
+    @Test
+    public void test_getAudience_invalidElementId() throws IOException, InterruptedException {
+        // Test for GET endpoint with invalid elementId
+        Integer invalidElementId = -1;
+        String baseUrl = "http://localhost:8080/api";
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(baseUrl + "/" + invalidElementId + "/test"))
+                .header("Content-Type", "application/json")
+                .GET()
+                .build();
+
+        java.net.http.HttpResponse<String> response = client.send(request, 
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        Assert.assertNotNull("Response should not be null", response);
+        // Expecting either 400 Bad Request or 404 Not Found for invalid element ID
+        Assert.assertTrue("HTTP response should indicate error", 
+                response.statusCode() == 400 || response.statusCode() == 404);
+    }
+
+    @Test
+    public void test_getAudience_withDifferentElementId() throws IOException, InterruptedException {
+        // Test for GET endpoint with different valid elementId
+        Integer elementId = 100;
+        String baseUrl = "http://localhost:8080/api";
+
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(java.net.URI.create(baseUrl + "/" + elementId + "/test"))
+                .header("Content-Type", "application/json")
+                .GET()
+                .build();
+
+        java.net.http.HttpResponse<String> response = client.send(request, 
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        Assert.assertNotNull("Response should not be null", response);
+        Assert.assertNotNull("Response body should not be null", response.body());
+    }
 }
